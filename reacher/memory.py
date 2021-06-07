@@ -10,13 +10,13 @@ DEFAULT_MAX_SIZE = 1024 * 256
 
 
 @dataclass
-class ReplayItem:
-    """Stores a state transition tuple."""
-    state: np.array
-    action: np.array
-    reward: float
-    next_state: np.array
-    done: bool
+class ReplayBatch:
+    """Stores a state transition tuples of a batch."""
+    states: np.array
+    actions: np.array
+    rewards: List[float]
+    next_states: np.array
+    dones: List[bool]
 
 
 class ReplayBuffer:
@@ -34,22 +34,20 @@ class ReplayBuffer:
         self,
         states: np.array,
         actions: np.array,
-        rewards: float,
+        rewards: List[float],
         next_states: np.array,
-        dones: bool
+        dones: List[bool]
     ):
         """Add item to the buffer."""
-        n = states.shape[0]
-        for i in range(n):
-            item = ReplayItem(
-                state=states[i, :],
-                action=actions[i, :],
-                reward=rewards[i],
-                next_state=next_states[i, :],
-                done=dones[i]
-            )
-            self.buffer.append(item)
-    
+        item = ReplayBatch(
+            states=states,
+            actions=actions,
+            rewards=rewards,
+            next_states=next_states,
+            dones=dones
+        )
+        self.buffer.append(item)
+
     def sample(self, size: Optional[int] = None):
         """Samples `size` items from the buffer.
 
@@ -74,5 +72,5 @@ class ReplayBuffer:
         
         items = np.random.choice(self.buffer, size=size, replace=replace)
         
-        return tuple(zip(*[(i.state, i.action, i.reward, i.next_state, i.done)
+        return tuple(zip(*[(i.states, i.actions, i.rewards, i.next_states, i.dones)
                            for i in items]))

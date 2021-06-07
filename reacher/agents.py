@@ -10,10 +10,14 @@ from memory import ReplayBuffer
 from models import Actor, Critic
 
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
 DEFAULT_GAMMA = 0.99            # discount factor
 DEFAULT_TAU = 1e-3              # for soft update of target parameters
 DEFAULT_LR_ACTOR = 1e-4         # learning rate of the actor 
 DEFAULT_LR_CRITIC = 3e-4        # learning rate of the critic
+DEFAULT_BATCH_SIZE = 32
 
 
 class MultiAgent():
@@ -30,7 +34,8 @@ class MultiAgent():
         sync_step: int = 1,
         epsilon_start: float = 1.0,
         min_epsilon: float = 0.01,
-        epsilon_decay: float = 0.993
+        epsilon_decay: float = 0.99,
+        batch_size: int = DEFAULT_BATCH_SIZE
     ):
         self.n_agents = n_agents
         self.state_size = state_size
@@ -44,28 +49,32 @@ class MultiAgent():
         self.epsilon = self.epsilon_start = epsilon_start
         self.min_epsilon = min_epsilon
         self.epsilon_decay = epsilon_decay
+        self.batch_size = batch_size
 
-        self.actor_local = Actor(self.state_size, self.action_size)
-        self.actor_target = Actor(self.state_size, self.action_size)
+        self.actor_local = Actor(self.state_size, self.action_size).to(device)
+        self.actor_target = Actor(self.state_size, self.action_size).to(device)
         self.actor_optimizer = optim.Adam(
             self.actor_local.parameters(), lr=self.learning_rate_actor)
 
-        self.critic_local = Critic(self.state_size, self.action_size)
-        self.critic_target = Critic(self.state_size, self.action_size)
+        self.critic_local = Critic(self.state_size, self.action_size).to(device)
+        self.critic_target = Critic(self.state_size, self.action_size).to(device)
         self.critic_optimizer = optim.Adam(
             self.critic_local.parameters(), lr=self.learning_rate_critic)
 
-        self.replay_buffer = ReplayBuffer()
+        self.replay_buffer = ReplayBuffer(batch_size=self.batch_size)
         self.t = 0
 
         self.noise = OUNoise((self.n_agents, action_size), 42)
 
+        self.gamma_tensor = torch.tensor(self.gamma, requires_grad=False).float().to(device)
+        self.one_tensor = torch.tensor(1, requires_grad=False).float().to(device)
+
     def act(self, states, add_noise=True):
-        states = torch.from_numpy(np.vstack(states)).float()
+        states = torch.from_numpy(np.vstack(states)).float().to(device)
 
         self.actor_local.eval()
         with torch.no_grad():
-            action = self.actor_local(states).data.numpy()
+            action = self.actor_local(states).cpu().data.numpy()
         self.actor_local.train()
 
         if add_noise:
@@ -86,19 +95,19 @@ class MultiAgent():
             .sample()
         
         # Convert everything to PyTorch tensors.
-        states = torch.from_numpy(np.vstack(states)).float()
-        actions = torch.from_numpy(np.vstack(actions)).float()
-        rewards = torch.from_numpy(np.vstack(rewards)).float().squeeze()        
-        next_states = torch.from_numpy(np.vstack(next_states)).float()
-        dones = torch.from_numpy(np.vstack(dones).astype(int)).float()\
-            .squeeze()
+        states = torch.from_numpy(np.vstack(states)).float().to(device)
+        actions = torch.from_numpy(np.vstack(actions)).float().to(device)
+        rewards = torch.from_numpy(np.hstack(rewards)).float().unsqueeze(dim=1).to(device)
+        next_states = torch.from_numpy(np.vstack(next_states)).float().to(device)
+        dones = torch.from_numpy(np.hstack(dones).astype(int)).float()\
+            .unsqueeze(dim=1).to(device)
 
         # ---------------------------- update critic ---------------------------- #
         # Get predicted next-state actions and Q values from target models
-        actions_next = self.actor_target(next_states)
-        Q_targets_next = self.critic_target(next_states, actions_next)
+        actions_next = self.actor_target(next_states).detach()
+        Q_targets_next = self.critic_target(next_states, actions_next).detach()
         # Compute Q targets for current states (y_i)
-        Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+        Q_targets = rewards + (self.gamma_tensor * Q_targets_next * (self.one_tensor - dones))
         # Compute critic loss
         Q_expected = self.critic_local(states, actions)
         critic_loss = F.mse_loss(Q_expected, Q_targets)

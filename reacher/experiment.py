@@ -24,18 +24,8 @@ class RunExperiments:
     gammas: List[float]
     epsilon_decays: List[float]
 
-    def get_random(self) -> RunConfig:
-        """Gets a random setup."""
-
-        return RunConfig(
-            learn_step=np.random.choice(self.learn_steps, 1)[0],
-            sync_step=np.random.choice(self.sync_steps, 1)[0],
-            batch_size=np.random.choice(self.batch_sizes, 1)[0],
-            gamma=np.random.choice(self.gammas, 1)[0],
-            epsilon_decay=np.random.choice(self.epsilon_decays, 1)[0],
-        )
-
     def get_configs(self, n_configs):
+        """Return `n_configs` random configurations."""
         combinations = np.array(np.meshgrid(
             self.learn_steps,
             self.sync_steps,
